@@ -1,3 +1,4 @@
+import argparse
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -87,10 +88,47 @@ def run_bandit_stream(bandit: LinUCB, X: np.ndarray, y: np.ndarray) -> np.ndarra
     return actions
 
 
+def parse_args() -> argparse.Namespace:
+    """Parses command line arguments for the evaluation pipeline.
+
+    Returns:
+        Namespace with alpha, lambda_reg, test_size, and val_size values.
+    """
+    parser = argparse.ArgumentParser(
+        description="Contextual bandit fraud detection evaluation."
+    )
+    parser.add_argument(
+        "--alpha", type=float, default=0.1, help="LinUCB exploration parameter."
+    )
+    parser.add_argument(
+        "--lambda-reg",
+        type=float,
+        default=1.0,
+        help="LinUCB ridge regularization parameter.",
+    )
+    parser.add_argument(
+        "--test-size",
+        type=float,
+        default=0.2,
+        help="Proportion of the dataset for the test split.",
+    )
+    parser.add_argument(
+        "--val-size",
+        type=float,
+        default=0.1,
+        help="Proportion of the dataset for the validation split.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     """Executes the full pipeline: data loading, bandit evaluation, and baseline comparison."""
+    args = parse_args()
+
     # 1. Call the data pipeline
-    X_train, y_train, X_val, y_val, X_test, y_test = load_and_split_data()
+    X_train, y_train, X_val, y_val, X_test, y_test = load_and_split_data(
+        test_size=args.test_size, val_size=args.val_size
+    )
 
     X_test_arr = np.asarray(X_test, dtype=np.float64)
     y_val_arr = np.asarray(y_val, dtype=np.int64)
@@ -98,7 +136,7 @@ def main() -> None:
 
     # 2. Warm up the LinUCB on the train stream, then run it sequentially on the test set
     n_features = X_train.shape[1]
-    bandit = LinUCB(n_features=n_features, alpha=0.1, lambda_reg=1.0)
+    bandit = LinUCB(n_features=n_features, alpha=args.alpha, lambda_reg=args.lambda_reg)
 
     X_train_arr = np.asarray(X_train, dtype=np.float64)
     y_train_arr = np.asarray(y_train, dtype=np.int64)
