@@ -21,6 +21,7 @@ We work directly on the `main` branch. No feature branches, no Gitflow.
 - **Commit Messages:** Conventional Commits: `<type>(<scope>): <description>`.
   - Types: `feat`, `fix`, `docs`, `style`, `refactor`, `chore`.
   - Example: `feat(models): implement LinUCB with Sherman-Morrison update`
+- After committing, always push to the remote `main` branch (`git push`).
 
 ## 4. Project Context
 - **Domain:** Credit Card Fraud Detection (Highly imbalanced, cost-sensitive).
