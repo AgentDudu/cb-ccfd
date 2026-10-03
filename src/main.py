@@ -64,6 +64,29 @@ def print_policy_report(
         print("  PR-AUC: n/a (no probabilistic output)")
 
 
+def run_bandit_stream(bandit: LinUCB, X: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Runs the bandit sequentially over a stream of contexts, choosing and updating actions.
+
+    Args:
+        bandit: LinUCB model to run.
+        X: 2D array of context feature vectors of shape (n_samples, n_features).
+        y: Ground truth binary target labels for the stream.
+
+    Returns:
+        1D array of chosen actions (0 or 1) for each context in the stream.
+    """
+    actions = np.empty(X.shape[0], dtype=np.int64)
+
+    for i in range(X.shape[0]):
+        x_t = X[i]
+        y_t = int(y[i])
+        action = int(bandit.predict(x_t)[0])
+        actions[i] = action
+        bandit.update(x_t, action, calculate_cumulative_reward(y_t, action))
+
+    return actions
+
+
 def main() -> None:
     """Executes the full pipeline: data loading, bandit evaluation, and baseline comparison."""
     # 1. Call the data pipeline
@@ -73,17 +96,15 @@ def main() -> None:
     y_val_arr = np.asarray(y_val, dtype=np.int64)
     y_test_arr = np.asarray(y_test, dtype=np.int64)
 
-    # 2. Run the LinUCB model sequentially on the test set
+    # 2. Warm up the LinUCB on the train stream, then run it sequentially on the test set
     n_features = X_train.shape[1]
     bandit = LinUCB(n_features=n_features, alpha=0.1, lambda_reg=1.0)
-    bandit_actions = np.empty(X_test_arr.shape[0], dtype=np.int64)
 
-    for i in range(len(X_test_arr)):
-        x_t = X_test_arr[i]
-        y_t = int(y_test_arr[i])
-        action = int(bandit.predict(x_t)[0])
-        bandit_actions[i] = action
-        bandit.update(x_t, action, calculate_cumulative_reward(y_t, action))
+    X_train_arr = np.asarray(X_train, dtype=np.float64)
+    y_train_arr = np.asarray(y_train, dtype=np.int64)
+    run_bandit_stream(bandit, X_train_arr, y_train_arr)
+
+    bandit_actions = run_bandit_stream(bandit, X_test_arr, y_test_arr)
 
     # 3. Run the baselines: tune the threshold on the validation set, apply to test
     baseline_probs = train_and_predict_baselines(X_train, y_train, X_val, X_test)
