@@ -1,5 +1,6 @@
 from typing import Tuple
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
 
 def load_and_split_data(
@@ -11,8 +12,12 @@ def load_and_split_data(
 ]:
     """Loads cleaned transaction data and performs a time-based train/val/test split.
 
+    Feature scaling is fitted on the train split only, then applied to the
+    validation and test splits, to avoid leaking val/test statistics into
+    the training features.
+
     Args:
-        file_path: Path to the cleaned parquet file.
+        file_path: Path to the cleaned parquet file (unscaled features).
             Defaults to "data/processed/creditcard_clean.parquet".
         test_size: Proportion of the dataset to include in the test split.
             Defaults to 0.2.
@@ -43,5 +48,17 @@ def load_and_split_data(
     y_val = y.iloc[val_start:test_start]
     X_test = X.iloc[test_start:]
     y_test = y.iloc[test_start:]
+
+    # Fit scaling on the train split only, then transform val/test (no leakage)
+    scaler = StandardScaler().fit(X_train)
+    X_train = pd.DataFrame(
+        scaler.transform(X_train), columns=X.columns, index=X_train.index
+    )
+    X_val = pd.DataFrame(
+        scaler.transform(X_val), columns=X.columns, index=X_val.index
+    )
+    X_test = pd.DataFrame(
+        scaler.transform(X_test), columns=X.columns, index=X_test.index
+    )
 
     return X_train, y_train, X_val, y_val, X_test, y_test
