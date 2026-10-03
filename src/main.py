@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -7,9 +8,60 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.data_processing.pipeline import load_and_split_data
-from src.evaluation.metrics import calculate_cumulative_reward, find_optimal_threshold
+from src.evaluation.metrics import (
+    calculate_confusion_matrix,
+    calculate_cost_savings,
+    calculate_cumulative_reward,
+    calculate_pr_auc,
+    calculate_precision_recall,
+    find_optimal_threshold,
+)
 from src.models.baselines import train_and_predict_baselines
 from src.models.linucb import LinUCB
+
+
+def print_policy_report(
+    name: str,
+    y_true: np.ndarray,
+    actions: np.ndarray,
+    probs: Optional[np.ndarray],
+    threshold: Optional[float],
+    approve_all_reward: float,
+    block_all_reward: float,
+) -> None:
+    """Prints the evaluation report for a single policy.
+
+    Args:
+        name: Display name of the policy.
+        y_true: Ground truth binary target labels.
+        actions: Predicted binary actions of the policy.
+        probs: Predicted fraud probabilities, if the policy is probabilistic.
+        threshold: Decision threshold used, if any.
+        approve_all_reward: Cumulative reward of the approve-all policy.
+        block_all_reward: Cumulative reward of the block-all policy.
+    """
+    reward = calculate_cumulative_reward(y_true, actions)
+    savings_approve_all, savings_block_all = calculate_cost_savings(
+        reward, approve_all_reward, block_all_reward
+    )
+    cm = calculate_confusion_matrix(y_true, actions)
+    precision, recall = calculate_precision_recall(y_true, actions)
+    pr_auc = calculate_pr_auc(y_true, probs) if probs is not None else None
+
+    print(f"Policy: {name}")
+    if threshold is not None:
+        print(f"  Decision Threshold: {threshold:.4f}")
+    print(f"  Cumulative Reward: {reward:.2f}")
+    print(f"  Cost Savings vs Approve All: {savings_approve_all:.2f}")
+    print(f"  Cost Savings vs Block All: {savings_block_all:.2f}")
+    print(
+        f"  Confusion Matrix: TN={cm['TN']}, FP={cm['FP']}, FN={cm['FN']}, TP={cm['TP']}"
+    )
+    print(f"  Precision: {precision:.4f} | Recall: {recall:.4f}")
+    if pr_auc is not None:
+        print(f"  PR-AUC: {pr_auc:.4f}")
+    else:
+        print("  PR-AUC: n/a (no probabilistic output)")
 
 
 def main() -> None:
@@ -23,42 +75,47 @@ def main() -> None:
     # 2. Run the LinUCB model sequentially on the test set
     n_features = X_train.shape[1]
     bandit = LinUCB(n_features=n_features, alpha=0.1, lambda_reg=1.0)
-    bandit_cumulative_reward = 0.0
+    bandit_actions = np.empty(X_test_arr.shape[0], dtype=np.int64)
 
     for i in range(len(X_test_arr)):
         x_t = X_test_arr[i]
         y_t = int(y_test_arr[i])
         action = int(bandit.predict(x_t)[0])
-        reward = calculate_cumulative_reward(y_t, action)
-        bandit.update(x_t, action, reward)
-        bandit_cumulative_reward += reward
+        bandit_actions[i] = action
+        bandit.update(x_t, action, calculate_cumulative_reward(y_t, action))
 
     # 3. Run the baselines on the test set using the optimal threshold
     baseline_probs = train_and_predict_baselines(X_train, y_train, X_test)
-    baseline_rewards = {}
-
+    baseline_reports = []
     for name, probs in baseline_probs.items():
         opt_thresh = find_optimal_threshold(y_test_arr, probs)
         preds = (probs >= opt_thresh).astype(int)
-        baseline_rewards[name] = calculate_cumulative_reward(y_test_arr, preds)
-
-    best_baseline_name = max(baseline_rewards, key=baseline_rewards.get)
-    best_baseline_reward = baseline_rewards[best_baseline_name]
+        baseline_reports.append((name, preds, probs, opt_thresh))
 
     # Naive baselines
-    approve_all_preds = np.zeros_like(y_test_arr)
-    approve_all_reward = calculate_cumulative_reward(y_test_arr, approve_all_preds)
+    approve_all_actions = np.zeros_like(y_test_arr)
+    block_all_actions = np.ones_like(y_test_arr)
 
-    block_all_preds = np.ones_like(y_test_arr)
-    block_all_reward = calculate_cumulative_reward(y_test_arr, block_all_preds)
+    approve_all_reward = calculate_cumulative_reward(y_test_arr, approve_all_actions)
+    block_all_reward = calculate_cumulative_reward(y_test_arr, block_all_actions)
 
-    # 4. Print cumulative rewards
-    print(f"Bandit Cumulative Reward: {bandit_cumulative_reward:.2f}")
-    print(
-        f"Best Baseline ({best_baseline_name}) Cumulative Reward: {best_baseline_reward:.2f}"
-    )
-    print(f"Approve All Baseline Cumulative Reward: {approve_all_reward:.2f}")
-    print(f"Block All Baseline Cumulative Reward: {block_all_reward:.2f}")
+    # 4. Print the evaluation report
+    policies: List[Tuple[str, np.ndarray, Optional[np.ndarray], Optional[float]]] = [
+        ("LinUCB", bandit_actions, None, None),
+        *baseline_reports,
+        ("Approve All", approve_all_actions, None, None),
+        ("Block All", block_all_actions, None, None),
+    ]
+
+    print("=" * 70)
+    print("EVALUATION REPORT")
+    print("=" * 70)
+    print(f"Test Set Size: {len(y_test_arr)}")
+
+    for name, actions, probs, threshold in policies:
+        print_policy_report(
+            name, y_test_arr, actions, probs, threshold, approve_all_reward, block_all_reward
+        )
 
 
 if __name__ == "__main__":
