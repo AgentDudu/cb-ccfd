@@ -14,7 +14,7 @@ This project uses a simplified, single-branch workflow directly on the `main` br
 2. Create a virtual environment: `python -m venv venv`
 3. Activate it and install dependencies: `pip install -r requirements.txt`
 4. Place `creditcard.csv` in `data/raw/`.
-5. **Run Manual EDA:** Execute the preprocessing script to scale features and cache the data:
+5. **Run Manual EDA:** Execute the preprocessing script to clean and cache the data (features are left unscaled; scaling is fitted on the train split inside the data pipeline):
    ```bash
    python scripts/eda.py
    ```
