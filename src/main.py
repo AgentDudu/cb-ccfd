@@ -107,6 +107,12 @@ def parse_args() -> argparse.Namespace:
         help="LinUCB ridge regularization parameter.",
     )
     parser.add_argument(
+        "--alpha-decay",
+        type=float,
+        default=1.0,
+        help="LinUCB per-step alpha decay rate (1.0 = no decay).",
+    )
+    parser.add_argument(
         "--test-size",
         type=float,
         default=0.2,
@@ -136,7 +142,12 @@ def main() -> None:
 
     # 2. Warm up the LinUCB on the train stream, then run it sequentially on the test set
     n_features = X_train.shape[1]
-    bandit = LinUCB(n_features=n_features, alpha=args.alpha, lambda_reg=args.lambda_reg)
+    bandit = LinUCB(
+        n_features=n_features,
+        alpha=args.alpha,
+        lambda_reg=args.lambda_reg,
+        alpha_decay=args.alpha_decay,
+    )
 
     X_train_arr = np.asarray(X_train, dtype=np.float64)
     y_train_arr = np.asarray(y_train, dtype=np.int64)

@@ -26,10 +26,11 @@ python src/main.py
 
 Optional arguments (defaults shown):
 ```bash
-python src/main.py --alpha 0.1 --lambda-reg 1.0 --test-size 0.2 --val-size 0.1
+python src/main.py --alpha 0.1 --lambda-reg 1.0 --alpha-decay 1.0 --test-size 0.2 --val-size 0.1
 ```
 - `--alpha`: LinUCB exploration parameter.
 - `--lambda-reg`: LinUCB ridge regularization parameter.
+- `--alpha-decay`: LinUCB per-step alpha decay rate (1.0 = no decay).
 - `--test-size` / `--val-size`: proportions of the dataset for the test/validation splits (time-based).
 
 ## Evaluation

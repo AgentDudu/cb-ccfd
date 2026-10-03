@@ -15,17 +15,23 @@ class LinUCB:
         n_features: int,
         alpha: float = 1.0,
         lambda_reg: float = 1.0,
+        alpha_decay: float = 1.0,
     ) -> None:
         """Initializes LinUCB model parameters for actions 0 and 1.
 
         Args:
             n_features: Dimensionality of context feature vectors.
-            alpha: Exploration parameter controlling confidence bound width.
+            alpha: Initial exploration parameter controlling confidence bound width.
                 Defaults to 1.0.
             lambda_reg: Ridge regularization parameter (prior). Defaults to 1.0.
+            alpha_decay: Per-step geometric decay rate applied to alpha after each
+                update (1.0 = no decay). Must satisfy 0 < alpha_decay <= 1.
+                Defaults to 1.0.
         """
         self.n_features = n_features
         self.alpha = alpha
+        self.alpha_decay = alpha_decay
+        self.t = 0
         self.lambda_reg = lambda_reg
 
         self.A: Dict[int, np.ndarray] = {
@@ -55,16 +61,21 @@ class LinUCB:
             1D array of chosen actions (0 or 1) for each sample.
         """
         X_arr = np.atleast_2d(np.asarray(X, dtype=np.float64))
+        alpha_t = self._current_alpha()
 
         mean_0 = X_arr @ self.theta[0]
         var_0 = np.sum((X_arr @ self.A_inv[0]) * X_arr, axis=1)
-        p_0 = mean_0 + self.alpha * np.sqrt(np.maximum(var_0, 0.0))
+        p_0 = mean_0 + alpha_t * np.sqrt(np.maximum(var_0, 0.0))
 
         mean_1 = X_arr @ self.theta[1]
         var_1 = np.sum((X_arr @ self.A_inv[1]) * X_arr, axis=1)
-        p_1 = mean_1 + self.alpha * np.sqrt(np.maximum(var_1, 0.0))
+        p_1 = mean_1 + alpha_t * np.sqrt(np.maximum(var_1, 0.0))
 
         return np.where(p_1 > p_0, 1, 0)
+
+    def _current_alpha(self) -> float:
+        """Computes the current exploration parameter after per-step decay."""
+        return self.alpha * self.alpha_decay ** self.t
 
     def update(self, x: np.ndarray, action: int, reward: float) -> None:
         """Updates A and b for the specific action using Sherman-Morrison rank-1 update.
@@ -83,3 +94,5 @@ class LinUCB:
         denom = 1.0 + np.dot(x_vec, v)
         self.A_inv[action] -= np.outer(v, v) / denom
         self.theta[action] = self.A_inv[action] @ self.b[action]
+
+        self.t += 1
