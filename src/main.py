@@ -67,9 +67,10 @@ def print_policy_report(
 def main() -> None:
     """Executes the full pipeline: data loading, bandit evaluation, and baseline comparison."""
     # 1. Call the data pipeline
-    X_train, y_train, X_test, y_test = load_and_split_data()
+    X_train, y_train, X_val, y_val, X_test, y_test = load_and_split_data()
 
     X_test_arr = np.asarray(X_test, dtype=np.float64)
+    y_val_arr = np.asarray(y_val, dtype=np.int64)
     y_test_arr = np.asarray(y_test, dtype=np.int64)
 
     # 2. Run the LinUCB model sequentially on the test set
@@ -84,13 +85,13 @@ def main() -> None:
         bandit_actions[i] = action
         bandit.update(x_t, action, calculate_cumulative_reward(y_t, action))
 
-    # 3. Run the baselines on the test set using the optimal threshold
-    baseline_probs = train_and_predict_baselines(X_train, y_train, X_test)
+    # 3. Run the baselines: tune the threshold on the validation set, apply to test
+    baseline_probs = train_and_predict_baselines(X_train, y_train, X_val, X_test)
     baseline_reports = []
-    for name, probs in baseline_probs.items():
-        opt_thresh = find_optimal_threshold(y_test_arr, probs)
-        preds = (probs >= opt_thresh).astype(int)
-        baseline_reports.append((name, preds, probs, opt_thresh))
+    for name, (val_probs, test_probs) in baseline_probs.items():
+        opt_thresh = find_optimal_threshold(y_val_arr, val_probs)
+        preds = (test_probs >= opt_thresh).astype(int)
+        baseline_reports.append((name, preds, test_probs, opt_thresh))
 
     # Naive baselines
     approve_all_actions = np.zeros_like(y_test_arr)
