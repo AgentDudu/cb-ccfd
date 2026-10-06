@@ -1,7 +1,7 @@
 import argparse
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -23,7 +23,7 @@ from src.models.linucb import LinUCB
 
 Bandit = Union[LinUCB, GLMUCB]
 
-BANDIT_DISPLAY_NAMES = {"linucb": "LinUCB", "glmucb": "GLM-UCB"}
+BANDIT_DISPLAY_NAMES: Dict[str, str] = {"linucb": "LinUCB", "glmucb": "GLM-UCB"}
 
 
 def print_policy_report(
@@ -207,10 +207,8 @@ def main() -> None:
         bandit = build_bandit(name, n_features, args)
         run_bandit_stream(bandit, X_train_arr, y_train_arr)
         actions = run_bandit_stream(bandit, X_test_arr, y_test_arr)
-        probs = bandit.predict_proba(X_test_arr) if isinstance(bandit, GLMUCB) else None
-        bandit_reports.append(
-            (BANDIT_DISPLAY_NAMES.get(name, name), actions, probs, None)
-        )
+        probs = bandit.predict_proba(X_test_arr)
+        bandit_reports.append((BANDIT_DISPLAY_NAMES[name], actions, probs, None))
 
     # 3. Run the baselines: tune the threshold on the validation set, apply to test
     baseline_probs = train_and_predict_baselines(X_train, y_train, X_val, X_test)
