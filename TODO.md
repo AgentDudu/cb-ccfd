@@ -7,10 +7,11 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ## 1. Algorithmic gaps
 
-- [ ] **GLM-UCB / logistic-UCB variant** — LinUCB assumes a *linear* expected reward,
-  but `P(y=1|x)` is logistic on the VSA features. `MATH_MODEL.md` §3 explicitly flags
-  this misspecification. Implement a logistic-UCB (or GLM-UCB) arm model so the
-  linearity assumption can be tested empirically against LinUCB.
+- [x] **GLM-UCB / logistic-UCB variant** — implemented in `src/models/glmucb.py`: a single
+  logistic GLM for `p(x) = P(y=1|x)` trained by online Newton/IRLS, optimism applied to the
+  probability, action taken by comparing `p_bar(x)` against the reward-matrix threshold
+  `p* = 1/11`. Result: reward -202 vs LinUCB -192 and RF -178 (PR-AUC 0.720). Follow-ups
+  discovered while implementing, kept below as open items.
 - [ ] **Drift handling: sliding window / forgetting factor** — `A_a` accumulates over
   200k+ steps with no forgetting, so the model becomes rigid and cannot track the
   well-documented temporal drift in this dataset. Add a discounted update
@@ -27,6 +28,13 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
   queue (e.g. fraud reported after N transactions) and evaluate degradation.
 - [ ] **Random tie-breaking** — `predict` uses `np.where(p_1 > p_0, 1, 0)`, i.e.
   deterministic prefer-approve. The documented random tie-break option is missing.
+- [ ] **GLM-UCB: intercept term** — contexts have no constant feature, so the logistic model
+  cannot fit the base rate (mean p̂ = 0.020 vs true test rate 0.0013). Adding an intercept
+  improves PR-AUC (0.720 → 0.745) but *worsens* reward (-202 → -364) because better
+  calibration means far fewer blocks. Needs a calibration/threshold study before adopting.
+- [ ] **GLM-UCB: per-arm variant is degenerate** — Faury-style per-arm logistic models of the
+  rescaled reward collapse to block-all (reward-matrix offset, not context, separates the
+  arms). Documented in `README.md`; do not re-attempt without changing the reward encoding.
 
 ## 2. Evaluation rigor
 
