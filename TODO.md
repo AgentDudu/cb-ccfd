@@ -20,9 +20,14 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
   (`R_FP=-1`, `R_FN=-10`). The UCB width for arm 0 (mostly 0 reward) vs arm 1 is not
   normalized, so `alpha` is not interpretable across reward matrices. Normalize or
   report `alpha` in reward units.
-- [ ] **Probabilistic LinUCB score** — PR-AUC is currently `n/a` for LinUCB, so it
-  cannot be compared on ranking quality. Emit a calibrated score, e.g.
-  `sigma(theta_1^T x - theta_0^T x)`, and feed it to `calculate_pr_auc`.
+- [x] **Probabilistic LinUCB score** — `LinUCB.predict_proba` inverts the reward matrix
+  (`p = (q_a - R(a,0)) / (R(a,1) - R(a,0))`) on both arms and averages them. Result:
+  LinUCB PR-AUC = 0.202 vs GLM-UCB 0.720, i.e. LinUCB's action choices are good but its
+  fitted arm models rank frauds poorly.
+- [ ] **Revisit the default policy given ranking quality** — LinUCB wins on cumulative
+  reward (-192 vs -202) but its implied-probability PR-AUC is 3.5x worse than GLM-UCB's.
+  Decide whether reward or ranking should drive the default, and whether a reward-aware
+  threshold on GLM-UCB scores (tuned on validation, like the baselines) closes the gap.
 - [ ] **Delayed / censored feedback** — `MATH_MODEL.md` §1 discusses labels revealed
   later, but the implementation assumes instant observation. Model a delayed-label
   queue (e.g. fraud reported after N transactions) and evaluate degradation.
