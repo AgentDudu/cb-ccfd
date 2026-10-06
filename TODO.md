@@ -16,7 +16,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
   well-documented temporal drift in this dataset. Add a discounted update
   (`A_a ← γ·A_a + x xᵀ`) or a rolling window, with `γ` exposed as a CLI flag.
 - [ ] **Reward-scale normalization** — all rewards are ≤ 0 with a 10× asymmetry
-  (`R_FN=-1`, `R_FN=-10`). The UCB width for arm 0 (mostly 0 reward) vs arm 1 is not
+  (`R_FP=-1`, `R_FN=-10`). The UCB width for arm 0 (mostly 0 reward) vs arm 1 is not
   normalized, so `alpha` is not interpretable across reward matrices. Normalize or
   report `alpha` in reward units.
 - [ ] **Probabilistic LinUCB score** — PR-AUC is currently `n/a` for LinUCB, so it
