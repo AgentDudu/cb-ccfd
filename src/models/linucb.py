@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 import numpy as np
 
 
@@ -16,6 +16,10 @@ class LinUCB:
         alpha: float = 1.0,
         lambda_reg: float = 1.0,
         alpha_decay: float = 1.0,
+        r_fp: float = -1.0,
+        r_fn: float = -10.0,
+        r_tn: float = 0.0,
+        r_tp: float = 0.0,
     ) -> None:
         """Initializes LinUCB model parameters for actions 0 and 1.
 
@@ -27,12 +31,28 @@ class LinUCB:
             alpha_decay: Per-step geometric decay rate applied to alpha after each
                 update (1.0 = no decay). Must satisfy 0 < alpha_decay <= 1.
                 Defaults to 1.0.
+            r_fp: Reward for blocking a legitimate transaction. Defaults to -1.0.
+            r_fn: Reward for approving a fraudulent transaction. Defaults to -10.0.
+            r_tn: Reward for approving a legitimate transaction. Defaults to 0.0.
+            r_tp: Reward for blocking a fraudulent transaction. Defaults to 0.0.
+
+        Raises:
+            ValueError: If the reward matrix cannot be inverted to recover a fraud
+                probability estimate (both arms degenerate).
         """
         self.n_features = n_features
         self.alpha = alpha
         self.alpha_decay = alpha_decay
         self.t = 0
         self.lambda_reg = lambda_reg
+        self.r_fp, self.r_fn, self.r_tn, self.r_tp = r_fp, r_fn, r_tn, r_tp
+
+        self._denominators: Dict[int, float] = {0: r_fn - r_tn, 1: r_tp - r_fp}
+        if all(den == 0.0 for den in self._denominators.values()):
+            raise ValueError(
+                "Reward matrix must vary with the label in at least one arm to "
+                "recover a fraud probability."
+            )
 
         self.A: Dict[int, np.ndarray] = {
             0: lambda_reg * np.eye(n_features, dtype=np.float64),
@@ -72,6 +92,36 @@ class LinUCB:
         p_1 = mean_1 + alpha_t * np.sqrt(np.maximum(var_1, 0.0))
 
         return np.where(p_1 > p_0, 1, 0)
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Estimates the fraud probability implied by the fitted arm models.
+
+        Each arm model estimates the expected reward `q_a = theta_a^T x`, which for a
+        fraud probability `p = P(y = 1 | x)` is the linear mixture
+
+            q_0 = R_TN * (1 - p) + R_FN * p
+            q_1 = R_FP * (1 - p) + R_TP * p
+
+        Inverting each well-defined arm gives two independent estimates of `p`, which
+        are averaged and clipped to [0, 1]. This is a post-hoc readout of the linear
+        reward estimates: unlike GLM-UCB there is no probabilistic model, so the
+        resulting scores are only rank-informative, not calibrated.
+
+        Args:
+            X: 2D array of context feature vectors of shape (n_samples, n_features).
+
+        Returns:
+            1D array of implied fraud probability scores in [0, 1].
+        """
+        X_arr = np.atleast_2d(np.asarray(X, dtype=np.float64))
+        estimates: List[np.ndarray] = []
+        offsets = {0: self.r_tn, 1: self.r_fp}
+
+        for action, den in self._denominators.items():
+            if den != 0.0:
+                estimates.append((X_arr @ self.theta[action] - offsets[action]) / den)
+
+        return np.clip(np.mean(estimates, axis=0), 0.0, 1.0)
 
     def _current_alpha(self) -> float:
         """Computes the current exploration parameter after per-step decay."""
