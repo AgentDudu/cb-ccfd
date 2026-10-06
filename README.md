@@ -71,19 +71,25 @@ Implementation notes from tuning:
   alpha=0.1) and exploration is effectively disabled. 1e-5 keeps a usable width after 200k+
   updates. Reward degrades sharply beyond alpha ~0.3 (over-blocking) and with `lambda_reg`
   well below 1.0 (online Newton becomes unstable, PR-AUC drops to ~0.33).
-- GLM-UCB emits calibrated-enough probabilities, so PR-AUC is reported for it; LinUCB has
-  no probabilistic output.
+- GLM-UCB models probabilities directly, and LinUCB now exposes a post-hoc `predict_proba`
+  that inverts the reward matrix (`p = (q_a - R(a,0)) / (R(a,1) - R(a,0))`, averaged over both
+  arms), so PR-AUC is reported for both bandits.
 
 ### Current Results (default config)
 | Policy | Cumulative Reward | Cost Savings vs Approve-All | Precision | Recall | PR-AUC |
 |---|---:|---:|---:|---:|---:|
 | Random Forest (threshold 0.109) | -178 | +572 | 0.616 | 0.813 | 0.822 |
-| LinUCB (alpha=0.1, lambda=1.0) | -192 | +558 | 0.826 | 0.760 | n/a |
+| LinUCB (alpha=0.1, lambda=1.0) | -192 | +558 | 0.826 | 0.760 | 0.202 |
 | GLM-UCB (alpha=0.05, lambda=1.0, min_curv=1e-5) | -202 | +548 | 0.824 | 0.747 | 0.720 |
 | XGBoost (threshold 0.446) | -208 | +542 | 0.873 | 0.733 | 0.788 |
 | Logistic Regression (threshold 0.980) | -219 | +531 | 0.465 | 0.800 | 0.745 |
 | Approve All | -750 | 0 | 0.000 | 0.000 | n/a |
 | Block All | -56887 | -56137 | 0.001 | 1.000 | n/a |
 
-Test set: 56,962 transactions, 75 frauds. PR-AUC is `n/a` for policies without probabilistic output (LinUCB, naive baselines).
-GLM-UCB ranks below LinUCB on cumulative reward but above XGBoost and Logistic Regression, and it is the only bandit with a reported PR-AUC.
+Test set: 56,962 transactions, 75 frauds. PR-AUC is `n/a` only for the deterministic naive
+baselines (approve-all / block-all).
+GLM-UCB ranks below LinUCB on cumulative reward but above XGBoost and Logistic Regression.
+On *ranking* quality the order reverses: GLM-UCB's PR-AUC (0.720) is more than 3x LinUCB's
+implied-probability PR-AUC (0.202). LinUCB picks its actions well at the linear-UCB margin
+but its fitted arm models order frauds poorly, which is consistent with the linearity
+misspecification discussed in `MATH_MODEL.md` sec. 3.
