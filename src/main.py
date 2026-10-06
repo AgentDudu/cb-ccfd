@@ -1,7 +1,7 @@
 import argparse
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -18,7 +18,12 @@ from src.evaluation.metrics import (
     find_optimal_threshold,
 )
 from src.models.baselines import train_and_predict_baselines
+from src.models.glmucb import GLMUCB
 from src.models.linucb import LinUCB
+
+Bandit = Union[LinUCB, GLMUCB]
+
+BANDIT_DISPLAY_NAMES = {"linucb": "LinUCB", "glmucb": "GLM-UCB"}
 
 
 def print_policy_report(
@@ -65,11 +70,43 @@ def print_policy_report(
         print("  PR-AUC: n/a (no probabilistic output)")
 
 
-def run_bandit_stream(bandit: LinUCB, X: np.ndarray, y: np.ndarray) -> np.ndarray:
+def build_bandit(name: str, n_features: int, args: argparse.Namespace) -> Bandit:
+    """Instantiates a bandit policy by name.
+
+    Args:
+        name: Policy name, either "linucb" or "glmucb".
+        n_features: Dimensionality of the context feature vectors.
+        args: Parsed CLI arguments providing alpha, lambda_reg and alpha_decay.
+
+    Returns:
+        An untrained bandit exposing `predict` and `update`.
+
+    Raises:
+        ValueError: If `name` is not a supported bandit policy.
+    """
+    if name == "linucb":
+        return LinUCB(
+            n_features=n_features,
+            alpha=args.alpha,
+            lambda_reg=args.lambda_reg,
+            alpha_decay=args.alpha_decay,
+        )
+    if name == "glmucb":
+        return GLMUCB(
+            n_features=n_features,
+            alpha=args.glm_alpha,
+            lambda_reg=args.lambda_reg,
+            alpha_decay=args.alpha_decay,
+            min_curvature=args.glm_min_curvature,
+        )
+    raise ValueError(f"Unknown bandit policy '{name}'. Use 'linucb' or 'glmucb'.")
+
+
+def run_bandit_stream(bandit: Bandit, X: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Runs the bandit sequentially over a stream of contexts, choosing and updating actions.
 
     Args:
-        bandit: LinUCB model to run.
+        bandit: Bandit policy (LinUCB or GLM-UCB).
         X: 2D array of context feature vectors of shape (n_samples, n_features).
         y: Ground truth binary target labels for the stream.
 
@@ -92,25 +129,43 @@ def parse_args() -> argparse.Namespace:
     """Parses command line arguments for the evaluation pipeline.
 
     Returns:
-        Namespace with alpha, lambda_reg, test_size, and val_size values.
+        Namespace with alpha, lambda_reg, alpha_decay, models, test_size and
+        val_size values.
     """
     parser = argparse.ArgumentParser(
         description="Contextual bandit fraud detection evaluation."
     )
     parser.add_argument(
-        "--alpha", type=float, default=0.1, help="LinUCB exploration parameter."
+        "--alpha", type=float, default=0.1, help="Bandit exploration parameter."
     )
     parser.add_argument(
         "--lambda-reg",
         type=float,
         default=1.0,
-        help="LinUCB ridge regularization parameter.",
+        help="Bandit ridge regularization parameter.",
     )
     parser.add_argument(
         "--alpha-decay",
         type=float,
         default=1.0,
         help="LinUCB per-step alpha decay rate (1.0 = no decay).",
+    )
+    parser.add_argument(
+        "--glm-alpha",
+        type=float,
+        default=0.05,
+        help="GLM-UCB exploration parameter on the fraud-probability scale.",
+    )
+    parser.add_argument(
+        "--glm-min-curvature",
+        type=float,
+        default=1e-5,
+        help="GLM-UCB Hessian curvature floor (main exploration knob).",
+    )
+    parser.add_argument(
+        "--models",
+        default="linucb,glmucb",
+        help="Comma-separated bandit policies to evaluate (linucb, glmucb).",
     )
     parser.add_argument(
         "--test-size",
@@ -140,20 +195,22 @@ def main() -> None:
     y_val_arr = np.asarray(y_val, dtype=np.int64)
     y_test_arr = np.asarray(y_test, dtype=np.int64)
 
-    # 2. Warm up the LinUCB on the train stream, then run it sequentially on the test set
+    # 2. Warm each bandit up on the train stream, then run it sequentially on test
     n_features = X_train.shape[1]
-    bandit = LinUCB(
-        n_features=n_features,
-        alpha=args.alpha,
-        lambda_reg=args.lambda_reg,
-        alpha_decay=args.alpha_decay,
-    )
-
     X_train_arr = np.asarray(X_train, dtype=np.float64)
     y_train_arr = np.asarray(y_train, dtype=np.int64)
-    run_bandit_stream(bandit, X_train_arr, y_train_arr)
 
-    bandit_actions = run_bandit_stream(bandit, X_test_arr, y_test_arr)
+    bandit_reports: List[
+        Tuple[str, np.ndarray, Optional[np.ndarray], Optional[float]]
+    ] = []
+    for name in [m.strip().lower() for m in args.models.split(",") if m.strip()]:
+        bandit = build_bandit(name, n_features, args)
+        run_bandit_stream(bandit, X_train_arr, y_train_arr)
+        actions = run_bandit_stream(bandit, X_test_arr, y_test_arr)
+        probs = bandit.predict_proba(X_test_arr) if isinstance(bandit, GLMUCB) else None
+        bandit_reports.append(
+            (BANDIT_DISPLAY_NAMES.get(name, name), actions, probs, None)
+        )
 
     # 3. Run the baselines: tune the threshold on the validation set, apply to test
     baseline_probs = train_and_predict_baselines(X_train, y_train, X_val, X_test)
@@ -172,7 +229,7 @@ def main() -> None:
 
     # 4. Print the evaluation report
     policies: List[Tuple[str, np.ndarray, Optional[np.ndarray], Optional[float]]] = [
-        ("LinUCB", bandit_actions, None, None),
+        *bandit_reports,
         *baseline_reports,
         ("Approve All", approve_all_actions, None, None),
         ("Block All", block_all_actions, None, None),
@@ -185,7 +242,13 @@ def main() -> None:
 
     for name, actions, probs, threshold in policies:
         print_policy_report(
-            name, y_test_arr, actions, probs, threshold, approve_all_reward, block_all_reward
+            name,
+            y_test_arr,
+            actions,
+            probs,
+            threshold,
+            approve_all_reward,
+            block_all_reward,
         )
 
 
